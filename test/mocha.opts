@@ -1,0 +1,2 @@
+--ui mocha-exports-ui
+--compilers js:babel-register
