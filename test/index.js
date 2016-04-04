@@ -5,119 +5,27 @@
 'use strict';
 require('source-map-support').install();
 
+const _ = require('lodash');
 const Promise = require('bluebird');
 const chai = require('chai');
 const expect = chai.expect;
-var FormBuilder;
-const Validator = () => {};
 
-
-const {Field, Type, validators} = require('../index');
+const {Field, Form, Type, validators} = require('../index');
 const {Email, String, Required} = validators;
 
 
-const Length = (options) => {
-  options || (options = {});
-  return (form, field) => {
-    // should have access to label
-    if(/(^[^ ]+@[^ ].+$)/.test(field.data) === false){
-      return Promise.resolve((form, field) => {
-        const ctx = {options, form, field};
-        const label = type.label || field.name;
-        const message = options.message || (() => `${label} must be an email`);
-        return message(ctx)
-      });
-    }
-    return Promise.resolve();
-  };
-};
 
-const Range = () => {};
-
-const ValidationError = Error;
-
-const UserModel = {};
-const ModelAdapter = () => {};
-
-
-
-function StringType(label, validators){
-  return function(name){
-    return new Field(name, label, [String].concat(validators))
-  }
-}
-
-
+// test are written using mocha-exports-ui interface, if you like it check it out:
+// https://github.com/chopachom/mocha-exports-ui
 module.exports = {
-  '- possible usages'(){
-    /*
-    var UsernameLoginForm = function(){
-      FormBuilder({
-
-      }).apply(this);
-      var _this = LoginForm.apply(this, arguments);
-    };
-
-    UsernameLoginForm.prototype = Object.create(LoginForm.prototype);
-    UsernameLoginForm.prototype.constructor = UsernameLoginForm;
-    */
-    const LoginForm = FormBuilder({
-      email: new Type([String, Required, Length({min: 3, max: 128}), Email]),
-      age: new Type([Integer, Range({min: 18, max: 60})]),
-      experience: new Type('Work experience', [
-        Integer,
-        // options{options, form, field, type}
-        Range({
-          min: 1,
-          max: 60,
-          // Your work experience is out of range
-          // how we prevent context.form.validate()?
-          message: (context) => `Your ${context.type.label.toLowerCase()} is out of range`
-        }),
-        // custom validation
-        function(form, field){
-          if(field.data){
-            
-          }
-        }
-      ])
-    });
-
-    Object.assign(LoginForm.prototype, {
-      *save(){
-        const data = this.transform
-      },
-      *transformer(data){
-          
-      }
-    });
-    
-    const UserForm = ModelAdapter(FormBuilder, UserModel);
-
-    const ModelForm = FormBuilder((builder) => {
-      builder.fields({
-
-      });
-      const clazz = builder.build();
-      Object.assign(clazz.prototype, {
-        *transformer(){
-
-        }
-      })
-    });
-
-    const form = new LoginForm({email: 'john.doe@gmail.com', age:25});
-    // const data = yield* form.transform();
-
-  },
   const: {
     builder(){
       return function SomeValidator(options){
         options || (options = {});
-        return function(form, field){
+        return function(context, data, next){
           const message = options.message || (field => `${field.name} is required`);
-          if(!field.data) return Promise.resolve(new ValidationError(message(field), field));
-          return Promise.resolve();
+          if(!data) return Promise.reject(new Error(message(context.field), context));
+          return next();
         }
       };
     }
@@ -146,68 +54,90 @@ module.exports = {
       }
     }
   },
-  'Validator(form, field)': {
+  'Validator(context, data, next)': {
     const: {
       validator(){
         return this.builder();
+      },
+      context(){
+        return {
+          field: {name: 'test'}
+        }
+      },
+      next(){
+        return () => {
+          return Promise.resolve('next')
+        }
       }
     },
     'is a function'(){
       expect(this.validator).to.be.a('function');
     },
     'arity = 2'(){
-      expect(this.validator.length).to.be.eql(2);
+      expect(this.validator.length).to.be.eql(3);
     },
     'returns': {
       'a promise'(){
-        expect(this.validator(/*form*/null, {data: 'value'}).then).to.be.a('function');
-      },
-      'resolves to': {
-        'undefined if validation passed'(){
-          return this.validator(/*form*/null, {data: 'value'}).then(function(result){
-            expect(result).to.be.eql(undefined);
-          });
-        },
-        'an error if validation failed'(){
-          return this.validator(/*form*/null, {data: null}).then(function(err){
-            expect(err).to.be.an('error');
-          });
-        }
+        expect(this.validator(this.context, 'value', this.next).then).to.be.a('function');
       }
+    },
+    'resolves to a value if validation passed'(){
+      return this.validator(this.context, 'value', this.next).then(function(result){
+        expect(result).to.be.eql('next');
+      });
+    },
+    'rejected if validation failed'(){
+      return this.validator(this.context, null, this.next).catch(function(err){
+        expect(err).to.be.an('error');
+      });
     }
   },
   'Type(label, validators)': {
     const: {
       type: function(){
-        return Type('String', [String, Required])
+        return Type('String', [String, Required, function(context, data, next){
+          return next(data+'-transformed');
+        }, function(context, data, next){
+          return next(data+'-last')
+        }])
       },
-      form: function(){
-        return {}
-      },
-      field: function(){
-        return {name: 'username', data: ''};
+      context: function(){
+        return {
+          field: {
+            name: 'test-field',
+            data: 'text'
+          }
+        }
       }
     },
     '#validate(form, field)': {
       'returns a promise'(){
-        expect(this.type.validate(this.form, this.field).then).to.be.a('function');
+        expect(this.type.validate(this.context).then).to.be.a('function');
       },
       'resolves with': {
-        'if one of the validators failed': {
-          'Array<Error>'(){
-            return this.type.validate(this.form, this.field).then(function(errors){
-              expect(errors).to.have.length(1);
-              expect(errors[0].message).to.contain('required');
+        'if validation passed': {
+          'transformed field data'(){
+            return this.type.validate(this.context).then(function(data){
+              expect(data).to.be.eql('text-transformed-last');
             })
           }
         },
-        'if N validators failed':{
-          'Array<Error>.length === N'(){
-            return this.type.validate(this.form, {name: 'user', data: undefined}).then(function(errors){
-              expect(errors).to.have.length(2);
+        'if one of the validators failed': {
+          'Error'(){
+            const context = _.set(_.cloneDeep(this.context), 'field.data', '');
+            return this.type.validate(context).catch(function(error){
+              expect(error.message).to.contain('required');
             })
           }
         }
+        // 'if N validators failed':{
+        //   'Array<Error>.length === N'(){
+        //     const context = _.set(_.cloneDeep(this.context), 'field.data', '');
+        //     return this.type.validate(context).then(function(errors){
+        //       expect(errors).to.have.length(2);
+        //     })
+        //   }
+        // }
       }
     }
   },
@@ -232,51 +162,46 @@ module.exports = {
     },
     '#type': {
       'contains field type'(){
-        // TODO: more strict duck type check for Type
-        expect(this.field.type.validate).to.have.a.property('length', 2);
+        expect(this.field.type).to.have.a.property('label', 'Email');
+        expect(this.field.type.validate).to.have.a.property('length', 1);
       }
     },
-    '#validate(form)':{
+    '#validate(formContext)':{
       const: {
         invalidField: function(){
           return Field('email', this.type, 'afsfas');
         }
       },
-      'returns false if any of the Type validators failed'(){
-        return this.invalidField.validate({}).then(function(errors){
-          expect(errors).to.have.length(1);
+      'returns error if any of the Type validators failed'(){
+        return this.invalidField.validate({}).catch(function(error){
+          expect(error.message).to.be.eql('Email must be an email');
         });
       }
     }
   },
-  'Form': {
-    '(fields: Object)': {
-      'creates form with the fields': false
-    },
-    '(label: String, fields: Object)': {
-      'assigns label to field': false
-    },
-    '#fields': {
-      'is a map': false
+  '!Form': {
+    const: {
+      Form: function(){
+        return Form({
+          email: Type('Email', [Required, String, Email, function(context, data, next){
+            console.log('--', data);
+            return next(data+'-transformed');
+          }]),
+          password: Type('Password', [Required, String])
+        })
+      },
+      validForm: function(){
+        return this.Form({email: 'john@doe.com', password: 'qwerty'})
+      }
     },
     '#validate()': {
-      'runs each validator for each field': false
+      'returns transformed data'(){
+        this.validForm.validate().then((data) => {
+          console.log(data);
+        })
+      }
     }
   }
 };
 
-/*
- TODO: add possibility to not only hydrate data using Form#transform() but also dehydrate it using some other method
-       this may become useful for APIs that have input and output data of the same type
-       #convert(), #revert/invert(); #transform(), #conform()/retransform(); #dehydrate(), #hydrate();
-
-  TODO: how to specify default value?
-
-  TODO: names for the library postform, formate,
-        sculptor - deals with forms, but unfortunately taken
-        fitness - controlling your forms or controlling your objects shape
-        hydra - hydrate and dehydrate
-
-  TODO: how to access req context in the validation logic?
-        there propably should be a way to do this, if you want to access some data just pass it to the form
-*/
+// TODO: should be able to access results of the other fields validation in the context
