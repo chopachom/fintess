@@ -27,12 +27,12 @@ function ensureValidator(fn){
   return fn;
 }
 
-function next(context, data, validators) {
+function run(context, data, validators) {
   const validator = ensureValidator(validators[0]);
   return validator(context, data, function(data){
     const tail = validators.slice(1);
     if(tail.length === 0) return Promise.resolve(data);
-    return next(context, data, tail);
+    return run(context, data, tail);
   });
 }
 
@@ -41,7 +41,7 @@ function Type(label, validators){
     validators,
     label,
     validate(context){
-      return next(context, context.field.data, this.validators);
+      return run(context, context.field.data, this.validators);
     }
   }
 }
@@ -123,7 +123,8 @@ function FormFactory(schema){
     }
   }
 }
-const Required = (options = {}) => {
+
+function Required(options = {}){
   // TODO: default value
   return (context, data, next) => {
     const label = context.field.type.label || context.field.name;
@@ -132,22 +133,23 @@ const Required = (options = {}) => {
     if(empty) return Promise.reject(new Error(message(context.field)));
     return next(data);
   }
-};
+}
 
-const String = (options = {}) => {
+function String(options = {}){
   const trim = (data) => {
     return options.trim ? data.trim() : data;
   };
   return (context, data, next) => {
-    const message = options.message || (field => `${field.name} must be a string`);
+    const label = context.field.type.label || context.field.name;
+    const message = options.message || (() => `${label} must be a string`);
     if(typeof data !== 'string'){
       return Promise.reject(new Error(message(context.field)));
     }
     return next(trim(data));
   };
-};
+}
 
-const Email = (options = {}) => {
+function Email(options = {}){
   return (context, data, next) => {
     // should have access to label
     const label = context.field.type.label || context.field.name;
@@ -157,15 +159,40 @@ const Email = (options = {}) => {
     }
     return next(data);
   };
-};
+}
+
+function List(validators){
+  if(!Array.isArray(validators) || validators.length === 0){
+    throw new Error(`List validator accepts an array of validators. Got: ${validators} instead`);
+  }
+  const renameContext = (context, index) => {
+    return Object.assign({}, context, {
+      field: {
+        name: context.field.name+`[${index}]`,
+        data: context.field.data,
+        type: {
+          label: context.field.type && context.field.type.label+`[${index}]`
+        }
+      }
+    });
+  };
+  return (context, data, next) => {
+    // invoke validators on each element
+    return Promise.mapSeries(data, (element, index) => {
+      return run(renameContext(context, index), element, validators)
+    }).then(list => next(data));
+  }
+}
 
 module.exports = {
   Field,
   Form: FormFactory,
   Type,
   validators: {
+    run,
     Email,
     String,
-    Required
+    Required,
+    List
   }
 };

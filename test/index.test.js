@@ -66,7 +66,7 @@ module.exports = {
       },
       next(){
         return () => {
-          return Promise.resolve('next')
+          return Promise.resolve('run')
         }
       }
     },
@@ -78,16 +78,16 @@ module.exports = {
     },
     'returns': {
       'a promise'(){
-        expect(this.validator(this.context, 'value', this.next).then).to.be.a('function');
+        expect(this.validator(this.context, 'value', this.run).then).to.be.a('function');
       }
     },
     'resolves to a value if validation passed'(){
-      return this.validator(this.context, 'value', this.next).then(function(result){
-        expect(result).to.be.eql('next');
+      return this.validator(this.context, 'value', this.run).then(function(result){
+        expect(result).to.be.eql('run');
       });
     },
     'rejected if validation failed'(){
-      return this.validator(this.context, null, this.next).catch(function(err){
+      return this.validator(this.context, null, this.run).catch(function(err){
         expect(err).to.be.an('error');
       });
     }
