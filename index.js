@@ -4,6 +4,18 @@
 'use strict';
 const Promise = require('bluebird');
 
+class CompoundError extends Error {
+  constructor(errors){
+    const message = errors.reduce((acc, e) => `${acc}; ${e.message}`, '');
+    super(message);
+    this.errors = errors;
+    // super helper method to include stack trace in error object
+    Error.captureStackTrace(this, this.constructor);
+    // set our function’s name as error name.
+    this.name = this.constructor.name;
+  }
+}
+
 function isError(err){
   return err instanceof Error;
 }
@@ -89,12 +101,21 @@ function FormFactory(schema){
       validate(){
         const names = Object.keys(this.fields);
         // iterating over fields getting their validation results to a new object
+        // valid field values reduced into `data` property under corresponding names
+        // Errors returned by validators are saved under `errors` property
         return Promise.reduce(names, (acc, name) => {
           const field = this.fields[name];
           return field.validate(this.context()).then((data) => {
-            return Object.assign(acc, {[name]: data});
+            acc.data[name] = data;
+            return acc;
+          }).catch((err) => {
+            acc.errors.push(err);
+            return acc;
           });
-        }, {});
+        }, {data:{}, errors: []}).then((result) => {
+          if(result.errors.length > 0) return Promise.reject(new CompoundError(result.errors));
+          return result.data;
+        });
       },
       context(){
         return FormContext(this);
@@ -105,7 +126,8 @@ function FormFactory(schema){
 const Required = (options = {}) => {
   // TODO: default value
   return (context, data, next) => {
-    const message = options.message || (field => `${field.name} is required`);
+    const label = context.field.type.label || context.field.name;
+    const message = options.message || (() => `${label} is required`);
     const empty = ['', null, undefined].indexOf(data) > -1;
     if(empty) return Promise.reject(new Error(message(context.field)));
     return next(data);
@@ -147,12 +169,3 @@ module.exports = {
     Required
   }
 };
-
-
-/*
-
-TODO:
-      - must deal with ability to call form.validate, field.validate, type.validate from type validators
-        not sure if this is a legit problem but it makes me feel that API is kind of wrong
-
- */

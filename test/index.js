@@ -181,27 +181,46 @@ module.exports = {
   },
   '!Form': {
     const: {
-      Form: function(){
+      Form(){
+        const transform = (ctx, data, next) => next(data+'-transformed');
         return Form({
-          email: Type('Email', [Required, String, Email, function(context, data, next){
-            console.log('--', data);
-            return next(data+'-transformed');
-          }]),
+          email: Type('Email', [Required, String, Email, transform]),
+          nickname: Type('Nickname', [Required, String, transform]),
           password: Type('Password', [Required, String])
         })
       },
-      validForm: function(){
-        return this.Form({email: 'john@doe.com', password: 'qwerty'})
+      validForm(){
+        return this.Form({email: 'john@doe.com', nickname: 'john', password: 'qwerty'})
+      },
+      invalidForm(){
+        return this.Form({email: 'err?', nickname: '', password: 'qweqwe'})
       }
     },
-    '#validate()': {
-      'returns transformed data'(){
-        this.validForm.validate().then((data) => {
-          console.log(data);
-        })
+    '#validate(data)': {
+      'if data is valid': {
+        'resolved with transformed data'(){
+          return this.validForm.validate().then((data) => {
+            return expect(data).to.be.eql({
+              email: 'john@doe.com-transformed',
+              nickname: 'john-transformed',
+              password: 'qwerty'
+            })
+          })
+        }
+      },
+      'if data is invalid': {
+        'rejected with array of errors'(){
+          return this.invalidForm.validate().catch((error) => {
+            expect(error.errors.length).to.be.eql(2);
+          });
+        },
+        'contains an error for each failed validator'(){
+          return this.invalidForm.validate().catch((error) => {
+            expect(error.errors[0].message).to.contain('email');
+            expect(error.errors[1].message).to.contain('Nickname is required');
+          });
+        }
       }
     }
   }
 };
-
-// TODO: should be able to access results of the other fields validation in the context
